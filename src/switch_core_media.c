@@ -15549,7 +15549,15 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_text_frame(switch_core_
 	now = switch_micro_time_now();
 
 	if (switch_test_flag((*frame), SFF_CNG)) {
-		if (smh->last_text_frame && now - smh->last_text_frame > TEXT_PERIOD_TIMEOUT * 1000) {
+		const char *val;
+		int timeo;
+		if ((val = switch_channel_get_variable(session->channel, "rtp_text_idle"))) {
+			timeo = atoi(val);
+		} else {
+			timeo = TEXT_PERIOD_TIMEOUT * 1000;
+		}
+
+		if (smh->last_text_frame && now - smh->last_text_frame > timeo) {
 			switch_channel_set_flag(session->channel, CF_TEXT_IDLE);
 			switch_channel_clear_flag(session->channel, CF_TEXT_ACTIVE);
 			smh->last_text_frame = 0;

@@ -1521,12 +1521,13 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 	char transaction_id[MSRP_TRANS_ID_LEN + 1] = { 0 };
 	char buf[MSRP_BUFF_SIZE];
 	char message_id[SWITCH_UUID_FORMATTED_LENGTH + 1] = { 0 };
-	switch_size_t len;
+	char *payload, *sep, *content_buffer = NULL;
+	switch_size_t len, payload_len, content_type_len;
 	const char *msrp_h_to_path = switch_msrp_msg_get_header(msrp_msg, MSRP_H_TO_PATH);
 	const char *msrp_h_from_path = switch_msrp_msg_get_header(msrp_msg, MSRP_H_FROM_PATH);
 	const char *to_path = msrp_h_to_path ? msrp_h_to_path : ms->remote_path;
 	const char *from_path = msrp_h_from_path ? msrp_h_from_path: ms->local_path;
-	const char *content_type = switch_msrp_msg_get_header(msrp_msg, MSRP_H_CONTENT_TYPE);
+	char *content_type = (char *)switch_msrp_msg_get_header(msrp_msg, MSRP_H_CONTENT_TYPE);
 
 	if (msrp_msg->payload_bytes == 2 && msrp_msg->payload && !strncmp(msrp_msg->payload, "\r\n", 2)) {
 		// discard \r\n appended in uuid_send_text
@@ -1542,6 +1543,50 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 		content_type = "text/plain";
 	}
 
+	payload = (char *)msrp_msg->payload;
+	payload_len = msrp_msg->payload_bytes;
+ 	content_type_len = strlen(content_type);
+	if (payload && payload_len > 2 && payload[0] == '~' && (sep = strchr(payload, ':'))) {
+ 		content_type_len = (switch_size_t)(sep - payload - 1);
+		content_buffer = strndup(payload + 1, content_type_len);
+		content_type = content_buffer;
+		payload = sep + 1;
+		payload_len = msrp_msg->payload_bytes - content_type_len - 2;
+		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_INFO, "Found MSRP message of type %s\n", content_type);
+	}
+	if (strcmp(content_type, "text/plain")) {
+		char *accept = ms->remote_accept_types;
+		int base_len = 0;
+		sep = strchr(content_type, '/');
+		if (sep) {
+			base_len = (int)(sep - content_type + 1);
+			while (accept) {
+				if (accept[0] == '*' && (accept[1] == ' ' || accept[1] == '\0')) {
+					break;
+				} else if (!strncasecmp(accept, content_type, content_type_len) && (accept[content_type_len] == ' ' || accept[content_type_len] == '\0')) {
+					break;
+				} else if (!strncasecmp(accept, content_type, base_len) && accept[base_len] == '*' && (accept[base_len+1] == ' ' || accept[base_len+1] == '\0')) {
+					break;
+				}
+				accept = strchr(accept, ' ');
+				if (accept) {
+					accept++;
+				}
+			}
+		}
+		if (accept == NULL || sep == NULL) {
+			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_INFO, "MSRP type not accepted\n");
+			if (!strcasecmp(content_type, "message/cpim")) {
+				sep = strstr(payload, "\r\n\r\n");
+				if (sep) {
+					payload_len -= (int)(sep - payload + 4);
+					payload = sep + 4;
+				}
+			}
+			content_type = "text/plain";
+		}
+	}
+
 	random_string(transaction_id, MSRP_TRANS_ID_LEN);
 	switch_uuid_str(message_id, sizeof(message_id));
 
@@ -1553,21 +1598,26 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 		to_path,
 		from_path,
 		message_id,
-		msrp_msg->payload ? msrp_msg->payload_bytes : 0,
-		msrp_msg->payload ? msrp_msg->payload_bytes : 0,
+		msrp_msg->payload ? payload_len : 0,
+		msrp_msg->payload ? payload_len : 0,
 		msrp_msg->payload ? "Content-Type: " : "",
 		msrp_msg->payload ? content_type : "",
 		msrp_msg->payload ? "\r\n\r\n" : "");
 
+	if (content_buffer) {
+		free(content_buffer);
+	}
+
 	len = strlen(buf);
+	switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_INFO, "%s\n", buf);
 
 	if (msrp_msg->payload) {
-		if (len + msrp_msg->payload_bytes >= MSRP_BUFF_SIZE) {
-			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_ERROR, "payload too large! %" SWITCH_SIZE_T_FMT "\n", len + msrp_msg->payload_bytes);
+		if (len + payload_len >= MSRP_BUFF_SIZE) {
+			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_ERROR, "payload too large! %" SWITCH_SIZE_T_FMT "\n", len + payload_len);
 			return SWITCH_STATUS_FALSE;
 		}
-		memcpy(buf + len, msrp_msg->payload, msrp_msg->payload_bytes);
-		len += msrp_msg->payload_bytes;
+		memcpy(buf + len, payload, payload_len);
+		len += payload_len;
 		sprintf(buf + len, "\r\n");
 		len += 2;
 	}

@@ -1022,6 +1022,7 @@ void sofia_handle_sip_i_bye(switch_core_session_t *session, int status,
 		cause = tech_pvt->q850_cause;
 	} else {
 		cause = sofia_glue_sip_cause_to_freeswitch(status);
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "bye cause\n");
 	}
 
 	if (sip->sip_content_type && sip->sip_content_type->c_type) {
@@ -8713,6 +8714,10 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 				cause = tech_pvt->q850_cause;
 			} else {
 				cause = sofia_glue_sip_cause_to_freeswitch(status);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "nua terminated cause %d\n", status);
+				if (phrase) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "nua terminated cause %s\n", phrase);
+				}
 			}
 			if (status) {
 				switch_snprintf(st, sizeof(st), "%d", status);

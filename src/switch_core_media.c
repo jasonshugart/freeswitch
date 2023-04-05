@@ -4989,6 +4989,9 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 		}
 
 		if (got_msrp && m->m_type == sdp_media_message) {
+			const char *msrp_accept_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_types");
+			const char *msrp_accept_wrapped_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_wrapped_types");
+
 			if (!smh->msrp_session) {
 				smh->msrp_session = switch_msrp_session_new(switch_core_session_get_pool(session), switch_core_session_get_uuid(session), m->m_proto == sdp_proto_msrps);
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "MSRP session created %s\n", smh->msrp_session->call_id);
@@ -5063,8 +5066,18 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				}
 			}
 
-			smh->msrp_session->local_accept_types = smh->msrp_session->remote_accept_types;
-			smh->msrp_session->local_accept_wrapped_types = smh->msrp_session->remote_accept_types;
+			if (zstr(msrp_accept_types)) {
+				smh->msrp_session->local_accept_types = smh->msrp_session->remote_accept_types;
+				switch_channel_set_variable(session->channel, "sip_msrp_local_accept_types", smh->msrp_session->remote_accept_types);
+			} else {
+				smh->msrp_session->local_accept_types = switch_core_session_strdup(session, msrp_accept_types);
+			}
+			if (zstr(msrp_accept_wrapped_types)) {
+				smh->msrp_session->local_accept_wrapped_types = smh->msrp_session->remote_accept_wrapped_types;
+				switch_channel_set_variable(session->channel, "sip_msrp_local_accept_wrapped_types", smh->msrp_session->remote_accept_wrapped_types);
+			} else {
+				smh->msrp_session->local_accept_wrapped_types = switch_core_session_strdup(session, msrp_accept_wrapped_types);
+			}
 			smh->msrp_session->local_setup = smh->msrp_session->remote_setup;
 
 			switch_channel_set_flag(session->channel, CF_HAS_TEXT);
@@ -11341,14 +11354,15 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 	}
 
 	if (switch_channel_test_cap(session->channel, CC_MSRP) && !smh->msrp_session) {
+		int disable_msrp = switch_channel_var_true(session->channel, "sip_disable_msrp_bridge");
 		int want_msrp = switch_channel_var_true(session->channel, "sip_enable_msrp");
 		int want_msrps = switch_channel_var_true(session->channel, "sip_enable_msrps");
 
-		if (!want_msrp) {
+		if (!want_msrp && !disable_msrp) {
 			want_msrp = switch_channel_test_flag(session->channel, CF_WANT_MSRP);
 		}
 
-		if (!want_msrps) {
+		if (!want_msrps && !disable_msrp) {
 			want_msrps = switch_channel_test_flag(session->channel, CF_WANT_MSRPS);
 		}
 
@@ -11398,6 +11412,8 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 			char *uuid = switch_core_session_get_uuid(session);
 			const char *file_selector = switch_channel_get_variable(session->channel, "sip_msrp_local_file_selector");
 			const char *msrp_offer_active = switch_channel_get_variable(session->channel, "sip_msrp_offer_active");
+			const char *msrp_accept_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_types");
+			const char *msrp_accept_wrapped_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_wrapped_types");
 
 			if (switch_true(msrp_offer_active)) {
 				msrp_session->active = 1;
@@ -11414,12 +11430,14 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf),
 				"m=message %d TCP/%sMSRP *\r\n"
 				"a=path:%s\r\n"
-				"a=accept-types:message/cpim text/* application/im-iscomposing+xml\r\n"
-				"a=accept-wrapped-types:*\r\n"
+				"a=accept-types:%s\r\n"
+				"a=accept-wrapped-types:%s\r\n"
 				"a=setup:%s\r\n",
 				msrp_session->local_port,
 				msrp_session->secure ? "TLS/" : "",
 				msrp_session->local_path,
+				zstr(msrp_accept_types) ? "message/cpim text/* application/im-iscomposing+xml" : msrp_accept_types,
+				zstr(msrp_accept_wrapped_types) ? "*" : msrp_accept_wrapped_types,
 				msrp_session->active ? "active" : "passive");
 
 			if (!zstr(file_selector)) {
@@ -11442,7 +11460,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 		}
 	} else if ((switch_channel_test_flag(session->channel, CF_WANT_RTT) || switch_channel_test_flag(session->channel, CF_RTT) ||
 				switch_channel_var_true(session->channel, "rtp_enable_text")) &&
-			   switch_channel_test_cap(session->channel, CC_RTP_RTT)) {
+			   switch_channel_test_cap(session->channel, CC_RTP_RTT) && !switch_channel_var_true(session->channel, "rtp_disable_text_bridge")) {
 		t_engine->t140_pt = 0;
 		t_engine->red_pt = 0;
 

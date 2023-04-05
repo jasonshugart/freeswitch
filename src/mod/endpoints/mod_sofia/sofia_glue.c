@@ -1403,10 +1403,13 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 		switch_channel_set_variable(channel, "sip_to_host", sofia_glue_get_host(to_str, switch_core_session_get_pool(session)));
 		switch_channel_set_variable(channel, "sip_from_host", sofia_glue_get_host(from_str, switch_core_session_get_pool(session)));
 
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session),
+					  SWITCH_LOG_ERROR, "URI: %s\n", url_str);
 		if (!(tech_pvt->nh = nua_handle(tech_pvt->profile->nua, NULL,
 										NUTAG_URL(url_str),
 										TAG_IF(call_id, SIPTAG_CALL_ID_STR(call_id)),
 										TAG_IF(!zstr(record_route), SIPTAG_HEADER_STR(record_route)),
+										TAG_IF(!zstr(invite_route_uri), NUTAG_INITIAL_ROUTE_STR(invite_route_uri)),
 #ifdef NUTAG_CALL_TLS_ORQ_CONNECT_TIMEOUT
 										/* Per call tls outgoing request connect timeout */
 										TAG_IF(sip_call_tls_orq_connect_timeout_str, NUTAG_CALL_TLS_ORQ_CONNECT_TIMEOUT(sip_call_tls_orq_connect_timeout)),

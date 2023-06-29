@@ -4987,6 +4987,8 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 		if (got_msrp && m->m_type == sdp_media_message) {
 			const char *msrp_accept_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_types");
 			const char *msrp_accept_wrapped_types = switch_channel_get_variable(session->channel, "sip_msrp_local_accept_wrapped_types");
+			char msrp_remote_accept_types[1024];
+			char msrp_remote_accept_wrapped_types[1024];
 
 			if (!smh->msrp_session) {
 				smh->msrp_session = switch_msrp_session_new(switch_core_session_get_pool(session), switch_core_session_get_uuid(session), m->m_proto == sdp_proto_msrps);
@@ -4995,17 +4997,31 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 
 			switch_assert(smh->msrp_session);
 
+			msrp_remote_accept_types[0] = 0;
+			msrp_remote_accept_wrapped_types[0] = 0;
 			for (attr = m->m_attributes; attr; attr = attr->a_next) {
 				// switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[%s]=[%s]\n", attr->a_name, attr->a_value);
 				if (!strcasecmp(attr->a_name, "path") && attr->a_value) {
 					smh->msrp_session->remote_path = switch_core_session_strdup(session, attr->a_value);
 					switch_channel_set_variable(session->channel, "sip_msrp_remote_path", attr->a_value);
 				} else if (!strcasecmp(attr->a_name, "accept-types") && attr->a_value) {
+					if (msrp_remote_accept_types[0] != 0) {
+						strcat(msrp_remote_accept_types, " ");
+					}
+					strcat(msrp_remote_accept_types, attr->a_value);
+/*
 					smh->msrp_session->remote_accept_types = switch_core_session_strdup(session, attr->a_value);
 					switch_channel_set_variable(session->channel, "sip_msrp_remote_accept_types", attr->a_value);
+*/
 				} else if (!strcasecmp(attr->a_name, "accept-wrapped-types") && attr->a_value) {
+					if (msrp_remote_accept_wrapped_types[0] != 0) {
+						strcat(msrp_remote_accept_wrapped_types, " ");
+					}
+					strcat(msrp_remote_accept_wrapped_types, attr->a_value);
+/*
 					smh->msrp_session->remote_accept_wrapped_types = switch_core_session_strdup(session, attr->a_value);
 					switch_channel_set_variable(session->channel, "sip_msrp_remote_accept_wrapped_types", attr->a_value);
+*/
 				} else if (!strcasecmp(attr->a_name, "setup") && attr->a_value) {
 					smh->msrp_session->remote_setup = switch_core_session_strdup(session, attr->a_value);
 					switch_channel_set_variable(session->channel, "sip_msrp_remote_setup", attr->a_value);
@@ -5060,6 +5076,14 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				} else if (!strcasecmp(attr->a_name, "file-range") && attr->a_value) {
 					switch_channel_set_variable(session->channel, "sip_msrp_file_range", attr->a_value);
 				}
+			}
+			if (msrp_remote_accept_types[0] != 0) {
+				smh->msrp_session->remote_accept_types = switch_core_session_strdup(session, msrp_remote_accept_types);
+				switch_channel_set_variable(session->channel, "sip_msrp_remote_accept_types", msrp_remote_accept_types);
+			}
+			if (msrp_remote_accept_wrapped_types[0] != 0) {
+				smh->msrp_session->remote_accept_wrapped_types = switch_core_session_strdup(session, msrp_remote_accept_wrapped_types);
+				switch_channel_set_variable(session->channel, "sip_msrp_remote_accept_wrapped_types", msrp_remote_accept_wrapped_types);
 			}
 
 			if (zstr(msrp_accept_types)) {
@@ -11397,8 +11421,8 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 				msrp_session->local_port,
 				msrp_session->secure ? "TLS/" : "",
 				msrp_session->local_path,
-				msrp_session->local_accept_types,
-				msrp_session->local_accept_wrapped_types,
+				zstr(msrp_session->local_accept_types) ? "*" : msrp_session->local_accept_types,
+				zstr(msrp_session->local_accept_wrapped_types) ? "*" : msrp_session->local_accept_wrapped_types,
 				msrp_session->active ? "active" : "passive");
 		} else {
 			char *uuid = switch_core_session_get_uuid(session);

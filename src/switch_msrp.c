@@ -1076,7 +1076,6 @@ static void *SWITCH_THREAD_FUNC msrp_worker(switch_thread_t *thread, void *obj)
 		switch_assert(setup_msg);
 		switch_assert(helper->msrp_session);
 		msrp_session = helper->msrp_session;
-		msrp_session->running = 1;
 
 		switch_assert(msrp_session->remote_path);
 		dup = switch_core_strdup(pool, msrp_session->remote_path);
@@ -1184,6 +1183,9 @@ static void *SWITCH_THREAD_FUNC msrp_worker(switch_thread_t *thread, void *obj)
 		}
 
 		switch_msrp_msg_destroy(&setup_msg);
+
+		msrp_session->running = 1;
+
 	} else { // server mode
 		switch_socket_opt_set(csock->sock, SWITCH_SO_TCP_NODELAY, TRUE);
 		// switch_socket_opt_set(csock->sock, SWITCH_SO_NONBLOCK, TRUE);
@@ -1634,7 +1636,19 @@ SWITCH_DECLARE (switch_status_t) switch_msrp_perform_send(switch_msrp_session_t 
 {
 	switch_msrp_msg_t *msg = NULL;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
+	int sanity = 10;
 
+	while(sanity-- && !ms->running) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Waiting MSRP socket ...\n");
+		switch_yield(1000000);
+	}
+
+	if (!ms->running) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Waiting for MSRP socket timedout, exiting...\n");
+		return SWITCH_STATUS_FALSE;
+	}
+
+/*
 	if (!ms->running) {
 		if (!ms->send_queue) {
 			switch_queue_create(&ms->send_queue, 100, ms->pool);
@@ -1657,6 +1671,7 @@ SWITCH_DECLARE (switch_status_t) switch_msrp_perform_send(switch_msrp_session_t 
 
 		return status;
 	}
+*/
 
 	if (ms->send_queue) {
 		while (status == SWITCH_STATUS_SUCCESS && switch_queue_trypop(ms->send_queue, (void **)&msg) == SWITCH_STATUS_SUCCESS) {

@@ -1051,11 +1051,10 @@ static switch_status_t sofia_read_text_frame(switch_core_session_t *session, swi
 			rframe->m = 1;
 			*frame = rframe;
 
-			if (!strcasecmp(msrp_h_content_type, "message/cpim")) {
-				char *stripped_text = switch_html_strip((char *)rframe->data);
-				memcpy(rframe->data, stripped_text, strlen(stripped_text)+1);
-				rframe->datalen = strlen(stripped_text);
-				free(stripped_text);
+			/* Copy the content-type and the full payload if it isn't text/plain */
+			if (strcasecmp(msrp_h_content_type, "text/plain")) {
+				snprintf(rframe->data, rframe->buflen, "~%s:%s", msrp_h_content_type, (char *)msrp_msg->payload);
+				rframe->datalen = strlen(rframe->data);
 			}
 
 			switch_msrp_msg_destroy(&msrp_msg);
@@ -1082,9 +1081,9 @@ static switch_status_t sofia_write_text_frame(switch_core_session_t *session, sw
 			switch_msrp_msg_t *msrp_msg = switch_msrp_msg_create();
 			switch_status_t status = SWITCH_STATUS_SUCCESS;
 
-			// switch_msrp_msg_add_header(&msrp_msg, MSRP_H_CONTENT_TYPE, "message/cpim");
 			switch_msrp_msg_add_header(msrp_msg, MSRP_H_CONTENT_TYPE, "text/plain");
 			switch_msrp_msg_set_payload(msrp_msg, frame->data, frame->datalen);
+
 			status = switch_msrp_send(msrp_session, msrp_msg);
 			switch_msrp_msg_destroy(&msrp_msg);
 			return status;

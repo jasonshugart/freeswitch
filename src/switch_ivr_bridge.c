@@ -372,7 +372,7 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 	const char *silence_var;
 	int silence_val = 0, bypass_media_after_bridge = 0;
 	const char *bridge_answer_timeout = NULL;
-	int bridge_filter_dtmf, answer_timeout, sent_update = 0;
+	int bridge_filter_dtmf, bridge_filter_text, answer_timeout, sent_update = 0;
 	time_t answer_limit = 0;
 	const char *exec_app = NULL;
 	const char *exec_data = NULL;
@@ -504,6 +504,7 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 	}
 
 	bridge_filter_dtmf = switch_true(switch_channel_get_variable(chan_a, "bridge_filter_dtmf"));
+	bridge_filter_text = switch_true(switch_channel_get_variable(chan_a, "bridge_filter_text"));
 
 
 	for (;;) {
@@ -580,7 +581,7 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 			continue;
 		}
 
-		if (switch_channel_test_flag(chan_a, CF_HAS_TEXT) && switch_channel_test_flag(chan_b, CF_HAS_TEXT) && !txt_launch) {
+		if (switch_channel_test_flag(chan_a, CF_HAS_TEXT) && switch_channel_test_flag(chan_b, CF_HAS_TEXT) && !txt_launch && !bridge_filter_text) {
 			txt_launch++;
 
 			th.session_a = session_a;

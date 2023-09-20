@@ -965,7 +965,7 @@ static switch_msrp_msg_t *msrp_parse_buffer(char *buf, int len, switch_msrp_msg_
 
 			if (msrp_msg->payload_bytes > len) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "payload too large ... %d > %d\n", (int)msrp_msg->payload_bytes, (int)len);
-				msrp_msg->state = MSRP_ST_ERROR; // not supported yet
+				//msrp_msg->state = MSRP_ST_ERROR; // not supported yet
 				return msrp_msg;
 			}
 
@@ -1521,12 +1521,14 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 	char transaction_id[MSRP_TRANS_ID_LEN + 1] = { 0 };
 	char buf[MSRP_BUFF_SIZE];
 	char message_id[SWITCH_UUID_FORMATTED_LENGTH + 1] = { 0 };
-	switch_size_t len;
+	char *payload, *sep;
+	switch_size_t len, payload_len, content_type_len;
+	char content_buffer[128];
 	const char *msrp_h_to_path = switch_msrp_msg_get_header(msrp_msg, MSRP_H_TO_PATH);
 	const char *msrp_h_from_path = switch_msrp_msg_get_header(msrp_msg, MSRP_H_FROM_PATH);
 	const char *to_path = msrp_h_to_path ? msrp_h_to_path : ms->remote_path;
 	const char *from_path = msrp_h_from_path ? msrp_h_from_path: ms->local_path;
-	const char *content_type = switch_msrp_msg_get_header(msrp_msg, MSRP_H_CONTENT_TYPE);
+	char *content_type = (char *)switch_msrp_msg_get_header(msrp_msg, MSRP_H_CONTENT_TYPE);
 
 	if (msrp_msg->payload_bytes == 2 && msrp_msg->payload && !strncmp(msrp_msg->payload, "\r\n", 2)) {
 		// discard \r\n appended in uuid_send_text
@@ -1542,6 +1544,57 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 		content_type = "text/plain";
 	}
 
+	content_buffer[0] = 0;
+	payload = (char *)msrp_msg->payload;
+	payload_len = msrp_msg->payload_bytes;
+	content_type_len = strlen(content_type);
+	if (payload && payload_len > 2 && payload[0] == '~' && (sep = strchr(payload, ':'))) {
+		content_type_len = (switch_size_t)(sep - payload - 1);
+		switch_snprintf(content_buffer, content_type_len + 1, payload + 1);
+		content_type = content_buffer;
+		payload = sep + 1;
+		payload_len = msrp_msg->payload_bytes - content_type_len - 2;
+		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_DEBUG, "Found MSRP message of type %s\n", content_type);
+	}
+	if (strcmp(content_type, "text/plain")) {
+		char *accept = ms->remote_accept_types;
+		int base_len = 0;
+		sep = strchr(content_type, '/');
+		if (sep) {
+			base_len = (int)(sep - content_type + 1);
+			while (accept) {
+				if (accept[0] == '*' && (accept[1] == ' ' || accept[1] == '\0')) {
+					break;
+				} else if (!strncasecmp(accept, content_type, content_type_len) && (accept[content_type_len] == ' ' || accept[content_type_len] == '\0')) {
+					break;
+				} else if (!strncasecmp(accept, content_type, base_len) && accept[base_len] == '*' && (accept[base_len+1] == ' ' || accept[base_len+1] == '\0')) {
+					break;
+				}
+				accept = strchr(accept, ' ');
+				if (accept) {
+					accept++;
+				}
+			}
+		}
+		if (accept == NULL || sep == NULL) {
+			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_WARNING, "MSRP type %s not accepted\n", content_type);
+			if (!strcasecmp(content_type, "message/cpim")) {
+				sep = strstr(payload, "\r\n\r\ncontent-type:");
+				if (sep) {
+					sep += 4;
+				} else {
+					sep = payload;
+				}
+				sep = strstr(sep, "\r\n\r\n");
+				if (sep) {
+					payload_len -= (int)(sep - payload + 4);
+					payload = sep + 4;
+				}
+			}
+			content_type = "text/plain";
+		}
+	}
+
 	random_string(transaction_id, MSRP_TRANS_ID_LEN);
 	switch_uuid_str(message_id, sizeof(message_id));
 
@@ -1553,8 +1606,8 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 		to_path,
 		from_path,
 		message_id,
-		msrp_msg->payload ? msrp_msg->payload_bytes : 0,
-		msrp_msg->payload ? msrp_msg->payload_bytes : 0,
+		msrp_msg->payload ? payload_len : 0,
+		msrp_msg->payload ? payload_len : 0,
 		msrp_msg->payload ? "Content-Type: " : "",
 		msrp_msg->payload ? content_type : "",
 		msrp_msg->payload ? "\r\n\r\n" : "");
@@ -1562,12 +1615,12 @@ static switch_status_t switch_msrp_do_send(switch_msrp_session_t *ms, switch_msr
 	len = strlen(buf);
 
 	if (msrp_msg->payload) {
-		if (len + msrp_msg->payload_bytes >= MSRP_BUFF_SIZE) {
-			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_ERROR, "payload too large! %" SWITCH_SIZE_T_FMT "\n", len + msrp_msg->payload_bytes);
+		if (len + payload_len >= MSRP_BUFF_SIZE) {
+			switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, ms->call_id, SWITCH_LOG_ERROR, "payload too large! %" SWITCH_SIZE_T_FMT "\n", len + payload_len);
 			return SWITCH_STATUS_FALSE;
 		}
-		memcpy(buf + len, msrp_msg->payload, msrp_msg->payload_bytes);
-		len += msrp_msg->payload_bytes;
+		memcpy(buf + len, payload, payload_len);
+		len += payload_len;
 		sprintf(buf + len, "\r\n");
 		len += 2;
 	}
@@ -1814,7 +1867,7 @@ SWITCH_STANDARD_API(uuid_msrp_send_function)
 		goto error;
 	}
 
-	argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])));
+	argc = switch_separate_string(mycmd, ' ', argv, 2);
 
 	if (argc < 2 || !argv[0]) {
 		goto error;
@@ -1831,6 +1884,7 @@ SWITCH_STANDARD_API(uuid_msrp_send_function)
 		return SWITCH_STATUS_SUCCESS;
 	}
 
+	//switch_core_session_print(msession, argv[1]);
 	msrp_msg = switch_msrp_msg_create();
 	switch_msrp_msg_add_header(msrp_msg, MSRP_H_CONTENT_TYPE, "text/plain");
 	switch_msrp_msg_set_payload(msrp_msg, argv[1], strlen(argv[1]));
